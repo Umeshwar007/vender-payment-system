@@ -76,3 +76,24 @@ class InvoiceDetail(BaseModel):
     total_cents: int
     amount_paid_cents: int
     lines: list[InvoiceLineRead]
+
+
+class InvoiceSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    vendor_id: UUID
+    invoice_number: str
+    status: InvoiceStatus
+    issued_date: date
+    due_date: date
+    total_cents: int
+    amount_paid_cents: int
+    created_at: datetime
+
+
+class InvoicePage(BaseModel):
+    items: list[InvoiceSummary]
+    total: int
+    limit: int
+    offset: int

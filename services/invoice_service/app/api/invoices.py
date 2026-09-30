@@ -1,7 +1,9 @@
-from typing import Annotated
+from typing import Annotated,Literal
+from datetime import date
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, status ,Query
+from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -12,7 +14,12 @@ from services.invoice_service.app.domain import (
     calculate_total_cents,
 )
 from services.invoice_service.app.models import Invoice, InvoiceLine, Vendor
-from services.invoice_service.app.schemas import InvoiceCreate, InvoiceDetail
+from services.invoice_service.app.schemas import (
+    InvoiceCreate,
+    InvoiceDetail,
+    InvoicePage,
+    InvoiceSummary,
+)
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
 DbSession = Annotated[AsyncSession, Depends(get_session)]
@@ -72,3 +79,84 @@ async def create_invoice(
     )
     assert saved_invoice is not None
     return InvoiceDetail.model_validate(saved_invoice)
+
+@router.get("", response_model=InvoicePage)
+async def list_invoices(
+    session: DbSession,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    status_filter: InvoiceStatus | None = Query(default=None, alias="status"),
+    vendor_id: UUID | None = None,
+    issued_from: date | None = None,
+    issued_to: date | None = None,
+    sort_by: Literal[
+        "invoice_number",
+        "status",
+        "issued_date",
+        "due_date",
+        "total_cents",
+        "created_at",
+    ] = "issued_date",
+    direction: Literal["asc", "desc"] = "desc",
+) -> InvoicePage:
+    if issued_from and issued_to and issued_from > issued_to:
+        raise HTTPException(
+            status_code=422,
+            detail="issued_from cannot be after issued_to",
+        )
+
+    filters = []
+    if status_filter is not None:
+        filters.append(Invoice.status == status_filter.value)
+    if vendor_id is not None:
+        filters.append(Invoice.vendor_id == vendor_id)
+    if issued_from is not None:
+        filters.append(Invoice.issued_date >= issued_from)
+    if issued_to is not None:
+        filters.append(Invoice.issued_date <= issued_to)
+
+    total = await session.scalar(
+        select(func.count(Invoice.id)).where(*filters)
+    )
+
+    sort_columns = {
+        "invoice_number": Invoice.invoice_number,
+        "status": Invoice.status,
+        "issued_date": Invoice.issued_date,
+        "due_date": Invoice.due_date,
+        "total_cents": Invoice.total_cents,
+        "created_at": Invoice.created_at,
+    }
+    sort_column = sort_columns[sort_by]
+    order = sort_column.asc() if direction == "asc" else sort_column.desc()
+
+    rows = await session.scalars(
+        select(Invoice)
+        .where(*filters)
+        .order_by(order, Invoice.id.asc())
+        .limit(limit)
+        .offset(offset)
+    )
+
+    return InvoicePage(
+        items=list(rows),
+        total=total or 0,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/{invoice_id}", response_model=InvoiceDetail)
+async def get_invoice(
+    invoice_id: UUID,
+    session: DbSession,
+) -> InvoiceDetail:
+    invoice = await session.scalar(
+        select(Invoice)
+        .options(selectinload(Invoice.lines))
+        .where(Invoice.id == invoice_id)
+    )
+    if invoice is None:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+
+    return InvoiceDetail.model_validate(invoice)
