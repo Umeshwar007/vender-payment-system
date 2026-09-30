@@ -2,7 +2,7 @@ from typing import Annotated,Literal
 from datetime import date
 from uuid import UUID
 from uuid import uuid4
-from fastapi import APIRouter, Depends, HTTPException, status ,Query
+from fastapi import APIRouter, Depends, HTTPException, status ,Query , Response
 from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +22,8 @@ from services.invoice_service.app.schemas import (
     InvoicePage,
     InvoiceSummary,
     InvoiceStatusChange,
+    InvoiceUpdate,
+    InvoiceLineCreate,
 )
 
 
@@ -225,3 +227,80 @@ async def change_invoice_status(
     )
     assert updated_invoice is not None
     return InvoiceDetail.model_validate(updated_invoice)
+
+
+@router.put("/{invoice_id}", response_model=InvoiceDetail)
+async def update_invoice(
+    invoice_id: UUID,
+    payload: InvoiceUpdate,
+    session: DbSession,
+) -> InvoiceDetail:
+    invoice = await session.scalar(
+        select(Invoice)
+        .options(selectinload(Invoice.lines))
+        .where(Invoice.id == invoice_id)
+        .with_for_update()
+    )
+    if invoice is None:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    if invoice.status != InvoiceStatus.DRAFT.value:
+        raise HTTPException(
+            status_code=409,
+            detail="Only draft invoices can be edited",
+        )
+
+    invoice.invoice_number = payload.invoice_number
+    invoice.issued_date = payload.issued_date
+    invoice.due_date = payload.due_date
+    invoice.lines.clear()
+    invoice.lines.extend(
+        InvoiceLine(
+            description=line.description,
+            quantity=line.quantity,
+            unit_price_cents=line.unit_price_cents,
+        )
+        for line in payload.lines
+    )
+    invoice.total_cents = calculate_total_cents(
+        [(line.quantity, line.unit_price_cents) for line in payload.lines]
+    )
+
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="An invoice with this number already exists for the vendor",
+        ) from None
+
+    updated_invoice = await session.scalar(
+        select(Invoice)
+        .options(selectinload(Invoice.lines))
+        .where(Invoice.id == invoice_id)
+    )
+    assert updated_invoice is not None
+    return InvoiceDetail.model_validate(updated_invoice)
+
+
+@router.delete("/{invoice_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_draft_invoice(
+    invoice_id: UUID,
+    session: DbSession,
+) -> Response:
+    invoice = await session.scalar(
+        select(Invoice)
+        .where(Invoice.id == invoice_id)
+        .with_for_update()
+    )
+    if invoice is None:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    if invoice.status != InvoiceStatus.DRAFT.value:
+        raise HTTPException(
+            status_code=409,
+            detail="Only draft invoices can be deleted; use the status endpoint to void it",
+        )
+
+    await session.delete(invoice)
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

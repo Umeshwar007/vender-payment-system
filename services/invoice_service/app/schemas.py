@@ -100,3 +100,16 @@ class InvoicePage(BaseModel):
 
 class InvoiceStatusChange(BaseModel):
     status: InvoiceStatus
+
+
+class InvoiceUpdate(BaseModel):
+    invoice_number: str = Field(min_length=1, max_length=100)
+    issued_date: date
+    due_date: date
+    lines: list[InvoiceLineCreate] = Field(min_length=1, max_length=100)
+
+    @model_validator(mode="after")
+    def due_date_not_before_issue_date(self):
+        if self.due_date < self.issued_date:
+            raise ValueError("Due date cannot be before issue date")
+        return self
