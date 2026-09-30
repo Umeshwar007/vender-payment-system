@@ -1,7 +1,7 @@
 from typing import Annotated,Literal
 from datetime import date
 from uuid import UUID
-
+from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, status ,Query
 from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError
@@ -12,14 +12,23 @@ from services.invoice_service.app.db import get_session
 from services.invoice_service.app.domain import (
     InvoiceStatus,
     calculate_total_cents,
+     InvalidInvoiceTransition,
+        transition_invoice,
 )
-from services.invoice_service.app.models import Invoice, InvoiceLine, Vendor
+from services.invoice_service.app.models import Invoice, InvoiceLine, Vendor ,OutboxEvent
 from services.invoice_service.app.schemas import (
     InvoiceCreate,
     InvoiceDetail,
     InvoicePage,
     InvoiceSummary,
+    InvoiceStatusChange,
 )
+
+
+
+
+
+
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
 DbSession = Annotated[AsyncSession, Depends(get_session)]
@@ -160,3 +169,59 @@ async def get_invoice(
         raise HTTPException(status_code=404, detail="Invoice not found")
 
     return InvoiceDetail.model_validate(invoice)
+
+
+@router.patch("/{invoice_id}/status", response_model=InvoiceDetail)
+async def change_invoice_status(
+    invoice_id: UUID,
+    payload: InvoiceStatusChange,
+    session: DbSession,
+) -> InvoiceDetail:
+    invoice = await session.scalar(
+        select(Invoice)
+        .options(selectinload(Invoice.lines))
+        .where(Invoice.id == invoice_id)
+        .with_for_update()
+    )
+    if invoice is None:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+
+    try:
+        new_status = transition_invoice(
+            InvoiceStatus(invoice.status),
+            payload.status,
+        )
+    except InvalidInvoiceTransition as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    invoice.status = new_status.value
+
+    event_id = uuid4()
+    session.add(
+        OutboxEvent(
+            id=event_id,
+            event_type=f"invoice.{new_status.value}",
+            aggregate_id=invoice.id,
+            payload={
+                "event_id": str(event_id),
+                "schema_version": 1,
+                "invoice_id": str(invoice.id),
+                "vendor_id": str(invoice.vendor_id),
+                "invoice_number": invoice.invoice_number,
+                "status": new_status.value,
+                "total_cents": invoice.total_cents,
+                "amount_paid_cents": invoice.amount_paid_cents,
+                "due_date": invoice.due_date.isoformat(),
+            },
+        )
+    )
+
+    await session.commit()
+
+    updated_invoice = await session.scalar(
+        select(Invoice)
+        .options(selectinload(Invoice.lines))
+        .where(Invoice.id == invoice_id)
+    )
+    assert updated_invoice is not None
+    return InvoiceDetail.model_validate(updated_invoice)

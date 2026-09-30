@@ -97,3 +97,6 @@ class InvoicePage(BaseModel):
     total: int
     limit: int
     offset: int
+
+class InvoiceStatusChange(BaseModel):
+    status: InvoiceStatus
