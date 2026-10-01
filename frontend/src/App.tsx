@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { getInvoices, type InvoiceStatus } from "./api/invoices";
 import "./App.css";
-
+import InvoiceForm from "./components/InvoiceForm";
 const PAGE_SIZE = 20;
 
 function money(cents: number): string {
@@ -33,6 +33,7 @@ export default function App() {
     queryKey: ["invoices", offset],
     queryFn: () => getInvoices(PAGE_SIZE, offset),
   });
+  const [showCreateForm, setShowCreateForm] = useState(false);
 
   const page = invoicesQuery.data;
   const start = page && page.total > 0 ? page.offset + 1 : 0;
@@ -48,9 +49,26 @@ export default function App() {
             Review vendor invoices and track their payment status.
           </p>
         </div>
-        <div className="header-mark" aria-hidden="true">AP</div>
+        <div className="header-actions">
+          <button
+            className="primary-button"
+            type="button"
+            onClick={() => setShowCreateForm(true)}
+          >
+            New invoice
+          </button>
+          <div className="header-mark" aria-hidden="true">AP</div>
+        </div>
       </header>
-
+      {showCreateForm && (
+        <InvoiceForm
+          onClose={() => setShowCreateForm(false)}
+          onCreated={() => {
+            setOffset(0);
+            setShowCreateForm(false);
+          }}
+        />
+      )}
       <section className="content-card" aria-labelledby="invoice-list-heading">
         <div className="card-heading">
           <div>

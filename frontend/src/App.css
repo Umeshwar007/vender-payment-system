@@ -261,3 +261,237 @@ td strong {
     padding-left: 12px;
   }
 }
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.primary-button,
+.secondary-button {
+  padding: 10px 15px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.primary-button {
+  background: #28634f;
+  color: white;
+}
+
+.primary-button:hover:not(:disabled) {
+  background: #1f513f;
+}
+
+.primary-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.secondary-button {
+  border-color: #dce4e0;
+  background: #fff;
+  color: #35443e;
+}
+
+.modal-backdrop {
+  position: fixed;
+  z-index: 10;
+  inset: 0;
+  display: grid;
+  overflow-y: auto;
+  place-items: center;
+  padding: 24px;
+  background: rgb(22 34 29 / 42%);
+}
+
+.invoice-dialog {
+  width: min(680px, 100%);
+  padding: 26px;
+  border: 1px solid #e3e9e6;
+  border-radius: 16px;
+  background: white;
+  box-shadow: 0 24px 80px rgb(16 32 25 / 22%);
+}
+
+.dialog-heading,
+.dialog-actions,
+.line-items-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dialog-heading {
+  margin-bottom: 24px;
+}
+
+.dialog-heading h2 {
+  margin: 0;
+  font-size: 23px;
+  letter-spacing: -0.035em;
+}
+
+.dialog-heading .eyebrow {
+  margin-bottom: 6px;
+}
+
+.icon-button {
+  width: 34px;
+  height: 34px;
+  border: 1px solid #e2e8e5;
+  border-radius: 8px;
+  background: #fff;
+  color: #596660;
+  cursor: pointer;
+  font-size: 20px;
+}
+
+.icon-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.form-field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 7px;
+  margin-bottom: 16px;
+}
+
+.form-field > span {
+  color: #44514c;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.form-field input,
+.form-field select {
+  width: 100%;
+  min-height: 40px;
+  padding: 9px 11px;
+  border: 1px solid #dce4e0;
+  border-radius: 8px;
+  background: #fff;
+  color: #26332e;
+  font: inherit;
+  font-size: 13px;
+}
+
+.form-field input:focus,
+.form-field select:focus {
+  border-color: #6b9e87;
+  outline: 3px solid rgb(83 144 111 / 14%);
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.line-items-heading {
+  margin: 7px 0 12px;
+}
+
+.line-items-heading h3 {
+  margin: 0;
+  color: #283630;
+  font-size: 14px;
+}
+
+.text-button {
+  border: 0;
+  background: transparent;
+  color: #28634f;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.line-item {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) 78px 130px 34px;
+  align-items: end;
+  gap: 10px;
+  padding: 13px;
+  border: 1px solid #e8eeeb;
+  border-radius: 10px;
+  background: #fafcfb;
+}
+
+.line-item + .line-item {
+  margin-top: 10px;
+}
+
+.line-description,
+.line-quantity,
+.line-price {
+  margin-bottom: 0;
+}
+
+.remove-line {
+  margin-bottom: 3px;
+}
+
+.form-hint,
+.form-error {
+  margin: -7px 0 15px;
+  font-size: 12px;
+}
+
+.form-hint {
+  color: #74817b;
+}
+
+.form-error {
+  color: #a53c3c;
+}
+
+.dialog-actions {
+  justify-content: flex-end;
+  gap: 9px;
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid #edf0ee;
+}
+
+@media (max-width: 560px) {
+  .header-actions {
+    align-items: flex-end;
+    flex-direction: column-reverse;
+    gap: 8px;
+  }
+
+  .invoice-dialog {
+    padding: 20px 16px;
+  }
+
+  .form-grid {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .line-item {
+    grid-template-columns: 1fr 72px;
+  }
+
+  .line-description {
+    grid-column: 1 / -1;
+  }
+
+  .line-price {
+    grid-column: 1;
+  }
+
+  .remove-line {
+    grid-column: 2;
+    grid-row: 2;
+    justify-self: end;
+  }
+}

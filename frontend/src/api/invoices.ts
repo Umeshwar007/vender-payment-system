@@ -35,3 +35,24 @@ export function getInvoices(
     `/invoices?limit=${limit}&offset=${offset}`,
   );
 }
+
+export interface InvoiceLineInput {
+  description: string;
+  quantity: number;
+  unit_price_cents: number;
+}
+
+export interface InvoiceCreateInput {
+  vendor_id: string;
+  invoice_number: string;
+  issued_date: string;
+  due_date: string;
+  lines: InvoiceLineInput[];
+}
+
+export function createInvoice(input: InvoiceCreateInput): Promise<unknown> {
+  return apiRequest<unknown>("/invoices", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
