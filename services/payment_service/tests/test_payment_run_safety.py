@@ -1,7 +1,7 @@
 import asyncio
-from datetime import date
+from datetime import date, timedelta
 from uuid import uuid4
-
+from services.payment_service.app.api.reports import get_aging_report
 from fastapi import HTTPException
 from sqlalchemy import delete, select
 
@@ -210,5 +210,87 @@ async def _exercise_successful_payment_update() -> None:
             await session.execute(
                 delete(InvoiceProjection).where(
                     InvoiceProjection.invoice_id == invoice_id
+                )
+            )
+
+
+def test_aging_report_buckets_and_paginates_as_of_date() -> None:
+    asyncio.run(
+        _run_test_and_dispose(_exercise_aging_report())
+    )
+
+
+async def _exercise_aging_report() -> None:
+    as_of = date(2026, 10, 1)
+    invoice_ids = [uuid4() for _ in range(5)]
+    test_vendor_id = uuid4()
+
+    test_rows = [
+        (invoice_ids[0], "CURRENT", as_of + timedelta(days=1), "scheduled", 0),
+        (invoice_ids[1], "DAYS-1-30", as_of - timedelta(days=1), "partially_paid", 2500),
+        (invoice_ids[2], "DAYS-31-60", as_of - timedelta(days=31), "scheduled", 0),
+        (invoice_ids[3], "DAYS-61-90", as_of - timedelta(days=61), "scheduled", 0),
+        (invoice_ids[4], "OVER-90", as_of - timedelta(days=91), "scheduled", 0),
+    ]
+
+    try:
+        async with SessionFactory.begin() as session:
+            session.add_all(
+                [
+                    InvoiceProjection(
+                        invoice_id=invoice_id,
+                        vendor_id=test_vendor_id,
+                        invoice_number=f"TEST-{label}-{invoice_id}",
+                        status=invoice_status,
+                        due_date=due_date,
+                        total_cents=10000,
+                        amount_paid_cents=amount_paid,
+                    )
+                    for invoice_id, label, due_date, invoice_status, amount_paid in test_rows
+                ]
+            )
+
+        async with SessionFactory() as session:
+            first_page = await get_aging_report(
+                as_of=as_of,
+                page=1,
+                page_size=2,
+                bucket_order="asc",
+                vendor_id=test_vendor_id,
+                session=session,
+            )
+            second_page = await get_aging_report(
+                as_of=as_of,
+                page=2,
+                page_size=2,
+                bucket_order="asc",
+                vendor_id=test_vendor_id,
+                session=session,
+            )
+            descending_page = await get_aging_report(
+                as_of=as_of,
+                page=1,
+                page_size=2,
+                bucket_order="desc",
+                vendor_id=test_vendor_id,
+                session=session,
+            )
+
+        assert first_page.total_count == 5
+        assert first_page.total_pages == 3
+        assert [item.bucket for item in first_page.invoices] == ["current", "1-30"]
+        assert [item.bucket for item in second_page.invoices] == ["31-60", "61-90"]
+        assert [item.bucket for item in descending_page.invoices] == ["over-90", "61-90"]
+
+        assert first_page.buckets["current"].invoice_count == 1
+        assert first_page.buckets["current"].amount_cents == 10000
+        assert first_page.buckets["1-30"].invoice_count == 1
+        assert first_page.buckets["1-30"].amount_cents == 7500
+
+    finally:
+        async with SessionFactory.begin() as session:
+            await session.execute(
+                delete(InvoiceProjection).where(
+                    InvoiceProjection.invoice_id.in_(invoice_ids)
                 )
             )

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -34,3 +34,28 @@ class PaymentRunRead(BaseModel):
     created_at: datetime
     completed_at: datetime | None
     payments: list[PaymentRead] = Field(default_factory=list)
+
+
+class AgingBucketSummary(BaseModel):
+    invoice_count: int
+    amount_cents: int
+
+
+class AgingInvoiceRead(BaseModel):
+    invoice_id: UUID
+    vendor_id: UUID
+    invoice_number: str
+    due_date: date
+    outstanding_cents: int
+    days_past_due: int
+    bucket: str
+
+
+class AgingReportRead(BaseModel):
+    as_of: date
+    page: int
+    page_size: int
+    total_count: int
+    total_pages: int
+    buckets: dict[str, AgingBucketSummary]
+    invoices: list[AgingInvoiceRead]
