@@ -30,10 +30,16 @@ export interface InvoicePage {
 export function getInvoices(
   limit: number,
   offset: number,
+  status?: InvoiceStatus,
 ): Promise<InvoicePage> {
-  return apiRequest<InvoicePage>(
-    `/invoices?limit=${limit}&offset=${offset}`,
-  );
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  });
+
+  if (status) params.set("status", status);
+
+  return apiRequest<InvoicePage>(`/invoices?${params.toString()}`);
 }
 
 export interface InvoiceLineInput {
