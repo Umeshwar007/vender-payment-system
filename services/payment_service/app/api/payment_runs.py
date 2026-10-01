@@ -1,5 +1,9 @@
 from uuid import uuid4
+import os
+from datetime import datetime, timezone
+from uuid import UUID
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -130,3 +134,182 @@ async def create_payment_run(
             status_code=status.HTTP_409_CONFLICT,
             detail="An invoice already has an active payment",
         ) from exc
+
+    
+
+
+async def load_run_response(
+    session: AsyncSession,
+    run_id: UUID,
+) -> PaymentRunRead:
+    run = await session.get(PaymentRun, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Payment run not found")
+
+    payments = list(
+        (
+            await session.scalars(
+                select(Payment)
+                .where(Payment.run_id == run_id)
+                .order_by(Payment.id)
+            )
+        ).all()
+    )
+
+    return PaymentRunRead(
+        id=run.id,
+        status=run.status,
+        total_cents=run.total_cents,
+        created_at=run.created_at,
+        completed_at=run.completed_at,
+        payments=[
+            PaymentRead(
+                id=payment.id,
+                invoice_id=payment.invoice_id,
+                amount_cents=payment.amount_cents,
+                status=payment.status,
+                bank_reference=payment.bank_reference,
+            )
+            for payment in payments
+        ],
+    )
+
+
+@router.post("/{run_id}/execute", response_model=PaymentRunRead)
+async def execute_payment_run(
+    run_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> PaymentRunRead:
+    bank_url = os.environ.get(
+        "BANK_SIMULATOR_URL",
+        "http://127.0.0.1:8003",
+    )
+
+    payment_calls: list[tuple[UUID, UUID, UUID, int]] = []
+
+    async with session.begin():
+        run = await session.scalar(
+            select(PaymentRun)
+            .where(PaymentRun.id == run_id)
+            .with_for_update()
+        )
+        if run is None:
+            raise HTTPException(status_code=404, detail="Payment run not found")
+
+        # Repeated execute requests must never resend completed transfers.
+        if run.status in {"completed", "completed_with_errors"}:
+            return await load_run_response(session, run_id)
+
+        if run.status != "created":
+            raise HTTPException(
+                status_code=409,
+                detail=f"Payment run cannot execute from status '{run.status}'",
+            )
+
+        result = await session.execute(
+            select(Payment, InvoiceProjection.vendor_id)
+            .join(
+                InvoiceProjection,
+                InvoiceProjection.invoice_id == Payment.invoice_id,
+            )
+            .where(Payment.run_id == run_id)
+            .order_by(Payment.id)
+            .with_for_update(of=Payment)
+        )
+        rows = result.all()
+
+        if not rows:
+            raise HTTPException(status_code=409, detail="Payment run has no payments")
+
+        for payment, vendor_id in rows:
+            if payment.status != "queued":
+                raise HTTPException(
+                    status_code=409,
+                    detail="Payment run contains a payment that is not queued",
+                )
+
+            # Commit this before contacting the bank. A second request will
+            # see the run as executing and cannot send the same payments.
+            payment.status = "in_flight"
+            payment_calls.append(
+                (payment.id, payment.invoice_id, vendor_id, payment.amount_cents)
+            )
+
+        run.status = "executing"
+
+    timeout = httpx.Timeout(10.0)
+    async with httpx.AsyncClient(base_url=bank_url, timeout=timeout) as client:
+        for payment_id, invoice_id, vendor_id, amount_cents in payment_calls:
+            outcome = "unknown"
+            bank_reference = None
+
+            for attempt in range(3):
+                try:
+                    response = await client.post(
+                        "/transfers",
+                        json={
+                            "payment_id": str(payment_id),
+                            "vendor_id": str(vendor_id),
+                            "amount_cents": amount_cents,
+                        },
+                    )
+                except httpx.RequestError:
+                    # A timeout or connection failure could happen after
+                    # acceptance, so never blindly send this payment again.
+                    outcome = "unknown"
+                    break
+
+                if response.status_code >= 500:
+                    # The supplied simulator raises its 500 before accepting
+                    # the transfer, so this specific response is safe to retry.
+                    if attempt < 2:
+                        continue
+                    outcome = "failed"
+                    break
+
+                if response.is_error:
+                    outcome = "failed"
+                    break
+
+                try:
+                    body = response.json()
+                    if UUID(body["payment_id"]) != payment_id:
+                        outcome = "unknown"
+                    else:
+                        bank_reference = UUID(body["bank_reference"])
+                        outcome = "succeeded"
+                except (KeyError, TypeError, ValueError):
+                    # The bank may have accepted the transfer even if its
+                    # response was malformed. Leave it for reconciliation.
+                    outcome = "unknown"
+                break
+
+            async with session.begin():
+                payment = await session.get(
+                    Payment,
+                    payment_id,
+                    with_for_update=True,
+                )
+                payment.status = outcome
+                payment.bank_reference = bank_reference
+
+    async with session.begin():
+        run = await session.get(PaymentRun, run_id, with_for_update=True)
+        payment_statuses = list(
+            (
+                await session.scalars(
+                    select(Payment.status).where(Payment.run_id == run_id)
+                )
+            ).all()
+        )
+
+        if any(value in {"unknown", "in_flight"} for value in payment_statuses):
+            run.status = "needs_reconciliation"
+        elif any(value == "failed" for value in payment_statuses):
+            run.status = "completed_with_errors"
+        else:
+            run.status = "completed"
+
+        run.completed_at = datetime.now(timezone.utc)
+
+    return await load_run_response(session, run_id)
