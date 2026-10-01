@@ -290,8 +290,11 @@ async def execute_payment_run(
                     payment_id,
                     with_for_update=True,
                 )
-                payment.status = outcome
-                payment.bank_reference = bank_reference
+                if outcome == "succeeded" and bank_reference is not None:
+                    await mark_payment_succeeded(session, payment, bank_reference)
+                else:
+                    payment.status = outcome
+                    payment.bank_reference = bank_reference
 
     async with session.begin():
         run = await session.get(PaymentRun, run_id, with_for_update=True)
@@ -405,8 +408,7 @@ async def reconcile_payment_run(
                 continue
 
             if len(references) == 1:
-                payment.status = "succeeded"
-                payment.bank_reference = references[0]
+                await mark_payment_succeeded(session, payment, references[0])
             else:
                 # Zero matches is inconclusive; multiple matches need
                 # manual review because the bank may have paid twice.
@@ -432,3 +434,39 @@ async def reconcile_payment_run(
         run.completed_at = datetime.now(timezone.utc)
 
     return await load_run_response(session, run_id)
+
+async def mark_payment_succeeded(
+    session: AsyncSession,
+    payment: Payment,
+    bank_reference: UUID,
+) -> None:
+    # This guard makes reconciliation safe to repeat.
+    if payment.status not in {"in_flight", "unknown"}:
+        return
+
+    projection = await session.get(
+        InvoiceProjection,
+        payment.invoice_id,
+        with_for_update=True,
+    )
+    if projection is None:
+        raise RuntimeError(
+            f"Invoice projection {payment.invoice_id} is missing"
+        )
+
+    new_amount_paid = projection.amount_paid_cents + payment.amount_cents
+    if new_amount_paid > projection.total_cents:
+        raise RuntimeError(
+            f"Payment would overpay invoice {payment.invoice_id}"
+        )
+
+    projection.amount_paid_cents = new_amount_paid
+    projection.status = (
+        "paid"
+        if new_amount_paid == projection.total_cents
+        else "partially_paid"
+    )
+    projection.updated_at = datetime.now(timezone.utc)
+
+    payment.status = "succeeded"
+    payment.bank_reference = bank_reference
