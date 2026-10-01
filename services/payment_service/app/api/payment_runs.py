@@ -313,3 +313,122 @@ async def execute_payment_run(
         run.completed_at = datetime.now(timezone.utc)
 
     return await load_run_response(session, run_id)
+
+
+@router.post("/{run_id}/reconcile", response_model=PaymentRunRead)
+async def reconcile_payment_run(
+    run_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> PaymentRunRead:
+    bank_url = os.environ.get(
+        "BANK_SIMULATOR_URL",
+        "http://127.0.0.1:8003",
+    )
+
+    async with session.begin():
+        run = await session.scalar(
+            select(PaymentRun)
+            .where(PaymentRun.id == run_id)
+            .with_for_update()
+        )
+        if run is None:
+            raise HTTPException(status_code=404, detail="Payment run not found")
+
+        if run.status == "executing":
+            raise HTTPException(
+                status_code=409,
+                detail="Wait for payment execution to finish before reconciling",
+            )
+
+        if run.status != "needs_reconciliation":
+            return await load_run_response(session, run_id)
+
+        payment_ids = list(
+            (
+                await session.scalars(
+                    select(Payment.id).where(
+                        Payment.run_id == run_id,
+                        Payment.status.in_(("unknown", "in_flight")),
+                    )
+                )
+            ).all()
+        )
+
+    try:
+        async with httpx.AsyncClient(
+            base_url=bank_url,
+            timeout=httpx.Timeout(10.0),
+        ) as client:
+            response = await client.get("/transfers")
+    except httpx.RequestError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Could not reach the bank ledger; try reconciliation later",
+        ) from exc
+
+    if response.is_error:
+        raise HTTPException(
+            status_code=502,
+            detail="Bank ledger returned an error",
+        )
+
+    try:
+        ledger = response.json()
+        if not isinstance(ledger, list):
+            raise ValueError("Expected a list of transfers")
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Bank ledger returned an invalid response",
+        ) from exc
+
+    transfers_by_payment: dict[UUID, list[UUID]] = {}
+    for transfer in ledger:
+        try:
+            payment_id = UUID(transfer["payment_id"])
+            bank_reference = UUID(transfer["bank_reference"])
+        except (KeyError, TypeError, ValueError):
+            continue
+
+        transfers_by_payment.setdefault(payment_id, []).append(bank_reference)
+
+    for payment_id in payment_ids:
+        references = transfers_by_payment.get(payment_id, [])
+
+        async with session.begin():
+            payment = await session.get(
+                Payment,
+                payment_id,
+                with_for_update=True,
+            )
+            if payment is None:
+                continue
+
+            if len(references) == 1:
+                payment.status = "succeeded"
+                payment.bank_reference = references[0]
+            else:
+                # Zero matches is inconclusive; multiple matches need
+                # manual review because the bank may have paid twice.
+                payment.status = "unknown"
+
+    async with session.begin():
+        run = await session.get(PaymentRun, run_id, with_for_update=True)
+        payment_statuses = list(
+            (
+                await session.scalars(
+                    select(Payment.status).where(Payment.run_id == run_id)
+                )
+            ).all()
+        )
+
+        if any(value in {"unknown", "in_flight"} for value in payment_statuses):
+            run.status = "needs_reconciliation"
+        elif any(value == "failed" for value in payment_statuses):
+            run.status = "completed_with_errors"
+        else:
+            run.status = "completed"
+
+        run.completed_at = datetime.now(timezone.utc)
+
+    return await load_run_response(session, run_id)
