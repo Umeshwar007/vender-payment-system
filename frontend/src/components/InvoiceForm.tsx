@@ -1,13 +1,17 @@
-import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import {
     createInvoice,
     type InvoiceCreateInput,
+    getInvoice,
+    updateInvoice,
+    type InvoiceUpdateInput,
 } from "../api/invoices";
 import { getVendors } from "../api/vendors";
 
 interface InvoiceFormProps {
+    invoiceId?: string;
     onClose: () => void;
     onCreated: () => void;
 }
@@ -30,6 +34,7 @@ function dollarsToCents(value: string): number | null {
 }
 
 export default function InvoiceForm({
+    invoiceId,
     onClose,
     onCreated,
 }: InvoiceFormProps) {
@@ -37,6 +42,12 @@ export default function InvoiceForm({
     const vendorsQuery = useQuery({
         queryKey: ["vendors"],
         queryFn: getVendors,
+        enabled: !invoiceId,
+    });
+    const invoiceQuery = useQuery({
+        queryKey: ["invoice", invoiceId],
+        queryFn: () => getInvoice(invoiceId!),
+        enabled: Boolean(invoiceId),
     });
 
     const [vendorId, setVendorId] = useState("");
@@ -48,8 +59,29 @@ export default function InvoiceForm({
     ]);
     const [validationError, setValidationError] = useState("");
 
-    const createMutation = useMutation({
-        mutationFn: createInvoice,
+
+
+    useEffect(() => {
+        const invoice = invoiceQuery.data;
+        if (!invoice) return;
+
+        setVendorId(invoice.vendor_id);
+        setInvoiceNumber(invoice.invoice_number);
+        setIssuedDate(invoice.issued_date);
+        setDueDate(invoice.due_date);
+        setLines(
+            invoice.lines.map((line) => ({
+                description: line.description,
+                quantity: String(line.quantity),
+                unitPrice: (line.unit_price_cents / 100).toFixed(2),
+            })),
+        );
+    }, [invoiceQuery.data]);
+    const saveMutation = useMutation({
+        mutationFn: (payload: InvoiceCreateInput | InvoiceUpdateInput) =>
+            invoiceId
+                ? updateInvoice(invoiceId, payload as InvoiceUpdateInput)
+                : createInvoice(payload as InvoiceCreateInput),
         onSuccess: async () => {
             await queryClient.invalidateQueries({ queryKey: ["invoices"] });
             onCreated();
@@ -108,15 +140,18 @@ export default function InvoiceForm({
             });
         }
 
-        const payload: InvoiceCreateInput = {
-            vendor_id: vendorId,
+        const fields = {
             invoice_number: invoiceNumber.trim(),
             issued_date: issuedDate,
             due_date: dueDate,
             lines: requestLines,
         };
 
-        createMutation.mutate(payload);
+        if (invoiceId) {
+            saveMutation.mutate(fields);
+        } else {
+            saveMutation.mutate({ vendor_id: vendorId, ...fields });
+        }
     }
 
     return (
@@ -130,7 +165,9 @@ export default function InvoiceForm({
                 <div className="dialog-heading">
                     <div>
                         <p className="eyebrow">INVOICE WORKSPACE</p>
-                        <h2 id="new-invoice-title">Create invoice</h2>
+                        <h2 id="new-invoice-title">
+                            {invoiceId ? "Edit draft invoice" : "Create invoice"}
+                        </h2>
                     </div>
                     <button
                         className="icon-button"
@@ -143,37 +180,39 @@ export default function InvoiceForm({
                 </div>
 
                 <form onSubmit={submit}>
-                    <label className="form-field">
-                        <span>Vendor</span>
-                        <select
-                            value={vendorId}
-                            onChange={(event) => setVendorId(event.target.value)}
-                            required
-                        >
-                            <option value="">Choose a vendor</option>
-                            {activeVendors.map((vendor) => (
-                                <option key={vendor.id} value={vendor.id}>
-                                    {vendor.name}
-                                </option>
-                            ))}
-                        </select>
-                    </label>
+                    {!invoiceId && (
+                        <>
+                            <label className="form-field">
+                                <span>Vendor</span>
+                                <select
+                                    value={vendorId}
+                                    onChange={(event) => setVendorId(event.target.value)}
+                                    required
+                                >
+                                    <option value="">Choose a vendor</option>
+                                    {activeVendors.map((vendor) => (
+                                        <option key={vendor.id} value={vendor.id}>
+                                            {vendor.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
 
-                    {vendorsQuery.isLoading && (
-                        <p className="form-hint">Loading vendors…</p>
+                            {vendorsQuery.isLoading && (
+                                <p className="form-hint">Loading vendors…</p>
+                            )}
+                            {vendorsQuery.isError && (
+                                <p className="form-error" role="alert">
+                                    Couldn’t load vendors: {vendorsQuery.error.message}
+                                </p>
+                            )}
+                            {!vendorsQuery.isLoading && activeVendors.length === 0 && (
+                                <p className="form-hint">
+                                    No active vendors are available. Add a vendor before creating an invoice.
+                                </p>
+                            )}
+                        </>
                     )}
-                    {vendorsQuery.isError && (
-                        <p className="form-error" role="alert">
-                            Couldn’t load vendors: {vendorsQuery.error.message}
-                        </p>
-                    )}
-                    {!vendorsQuery.isLoading && activeVendors.length === 0 && (
-                        <p className="form-hint">
-                            No active vendors are available. Add a vendor before creating an
-                            invoice.
-                        </p>
-                    )}
-
                     <label className="form-field">
                         <span>Invoice number</span>
                         <input
@@ -276,9 +315,9 @@ export default function InvoiceForm({
                         </div>
                     ))}
 
-                    {(validationError || createMutation.isError) && (
+                    {(validationError || saveMutation.isError) && (
                         <p className="form-error" role="alert">
-                            {validationError || createMutation.error?.message}
+                            {validationError || saveMutation.error?.message}
                         </p>
                     )}
 
@@ -290,12 +329,12 @@ export default function InvoiceForm({
                             className="primary-button"
                             type="submit"
                             disabled={
-                                createMutation.isPending ||
+                                saveMutation.isPending ||
                                 vendorsQuery.isLoading ||
                                 activeVendors.length === 0
                             }
                         >
-                            {createMutation.isPending ? "Creating…" : "Create invoice"}
+                            {saveMutation.isPending ? "Saving…" : invoiceId ? "Update invoice" : "Create invoice"}
                         </button>
                     </div>
                 </form>

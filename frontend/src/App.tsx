@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-
-import { getInvoices, type InvoiceStatus } from "./api/invoices";
+const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null);
+import { getInvoices, type InvoiceStatus, deleteInvoice } from "./api/invoices";
 import "./App.css";
 import InvoiceForm from "./components/InvoiceForm";
 import { updateInvoiceStatus } from "./api/invoices";
@@ -53,6 +53,12 @@ export default function App() {
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ["invoices"] }),
   });
+
+  const deleteMutation = useMutation({
+    mutationFn: deleteInvoice,
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["invoices"] }),
+  });
   const page = invoicesQuery.data;
   const start = page && page.total > 0 ? page.offset + 1 : 0;
   const end = page ? Math.min(page.offset + page.items.length, page.total) : 0;
@@ -89,14 +95,24 @@ export default function App() {
           <div className="header-mark" aria-hidden="true">AP</div>
         </div>
       </header>
-      {showCreateForm && (
+      {(showCreateForm || editingInvoiceId !== null) && (
         <InvoiceForm
-          onClose={() => setShowCreateForm(false)}
+          invoiceId={editingInvoiceId ?? undefined}
+          onClose={() => {
+            setShowCreateForm(false);
+            setEditingInvoiceId(null);
+          }}
           onCreated={() => {
             setOffset(0);
             setShowCreateForm(false);
+            setEditingInvoiceId(null);
           }}
         />
+      )}
+      {deleteMutation.isError && (
+        <div className="notice notice-error" role="alert">
+          Couldn’t delete invoice: {deleteMutation.error?.message}
+        </div>
       )}
       <nav className="view-tabs" aria-label="Accounts payable views">
         <button
@@ -200,6 +216,27 @@ export default function App() {
                                 }
                               >
                                 {invoice.status === "draft" ? "Approve" : "Schedule"}
+                              </button>
+                            )}
+                            {invoice.status === "draft" && (
+                              <button
+                                type="button"
+                                onClick={() => setEditingInvoiceId(invoice.id)}
+                              >
+                                Edit
+                              </button>
+                            )}
+                            {invoice.status === "draft" && (
+                              <button
+                                type="button"
+                                disabled={deleteMutation.isPending}
+                                onClick={() => {
+                                  if (window.confirm(`Delete draft invoice ${invoice.invoice_number}?`)) {
+                                    deleteMutation.mutate(invoice.id);
+                                  }
+                                }}
+                              >
+                                Delete
                               </button>
                             )}
                             <span className="status-dot" />

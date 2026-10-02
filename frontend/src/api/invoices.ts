@@ -73,3 +73,34 @@ export function updateInvoiceStatus(
     body: JSON.stringify({ status }),
   });
 }
+
+export interface InvoiceDetail extends InvoiceSummary {
+  lines: Array<
+    InvoiceLineInput & {
+      id: string;
+      line_total_cents: number;
+    }
+  >;
+}
+
+export type InvoiceUpdateInput = Omit<InvoiceCreateInput, "vendor_id">;
+
+export function getInvoice(invoiceId: string): Promise<InvoiceDetail> {
+  return apiRequest<InvoiceDetail>(`/invoices/${invoiceId}`);
+}
+
+export function updateInvoice(
+  invoiceId: string,
+  input: InvoiceUpdateInput,
+): Promise<InvoiceDetail> {
+  return apiRequest<InvoiceDetail>(`/invoices/${invoiceId}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteInvoice(invoiceId: string): Promise<void> {
+  return apiRequest<void>(`/invoices/${invoiceId}`, {
+    method: "DELETE",
+  });
+}
