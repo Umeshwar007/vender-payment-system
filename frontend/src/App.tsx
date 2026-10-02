@@ -340,7 +340,25 @@ export default function App() {
                                     ? "Approve"
                                     : "Schedule"}
                                 </button>
+
                               )}
+                            {(invoice.status === "draft" || invoice.status === "approved") && (
+                              <button
+                                className="text-button"
+                                type="button"
+                                disabled={statusMutation.isPending}
+                                onClick={() => {
+                                  if (window.confirm(`Void invoice ${invoice.invoice_number}?`)) {
+                                    statusMutation.mutate({
+                                      invoiceId: invoice.id,
+                                      status: "void",
+                                    });
+                                  }
+                                }}
+                              >
+                                Void
+                              </button>
+                            )}
                           </div>
                         </td>
                         <td>{invoice.issued_date}</td>
