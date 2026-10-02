@@ -1,13 +1,24 @@
 import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null);
-import { getInvoices, type InvoiceStatus, deleteInvoice } from "./api/invoices";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+
+import {
+  deleteInvoice,
+  getInvoices,
+  updateInvoiceStatus,
+  type InvoiceStatus,
+} from "./api/invoices";
 import "./App.css";
-import InvoiceForm from "./components/InvoiceForm";
-import { updateInvoiceStatus } from "./api/invoices";
-const PAGE_SIZE = 20;
 import AgingReportPanel from "./components/AgingReportPanel";
+import InvoiceForm from "./components/InvoiceForm";
 import PaymentRunsPanel from "./components/PaymentRunsPanel";
+import VendorsPanel from "./components/VendorsPanel";
+
+const PAGE_SIZE = 20;
+
 function money(cents: number): string {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -28,19 +39,20 @@ const statusLabels: Record<InvoiceStatus, string> = {
   void: "Void",
 };
 
+type View = "invoices" | "vendors" | "payments" | "aging";
+
 export default function App() {
   const [offset, setOffset] = useState(0);
+  const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [activeView, setActiveView] = useState<View>("invoices");
+
+  const queryClient = useQueryClient();
 
   const invoicesQuery = useQuery({
     queryKey: ["invoices", offset],
     queryFn: () => getInvoices(PAGE_SIZE, offset),
   });
-  const [showCreateForm, setShowCreateForm] = useState(false);
-  const [activeView, setActiveView] = useState<
-    "invoices" | "payments" | "aging"
-  >("invoices");
-
-  const queryClient = useQueryClient();
 
   const statusMutation = useMutation({
     mutationFn: ({
@@ -59,6 +71,7 @@ export default function App() {
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ["invoices"] }),
   });
+
   const page = invoicesQuery.data;
   const start = page && page.total > 0 ? page.offset + 1 : 0;
   const end = page ? Math.min(page.offset + page.items.length, page.total) : 0;
@@ -71,30 +84,42 @@ export default function App() {
           <h1>
             {activeView === "invoices"
               ? "Invoices"
-              : activeView === "payments"
-                ? "Payment runs"
-                : "Aging report"}
+              : activeView === "vendors"
+                ? "Vendors"
+                : activeView === "payments"
+                  ? "Payment runs"
+                  : "Aging report"}
           </h1>
           <p className="page-subtitle">
             {activeView === "invoices"
               ? "Review vendor invoices and track their payment status."
-              : activeView === "payments"
-                ? "Prepare and execute payments for scheduled invoices."
-                : "Review outstanding balances by aging bucket."}
+              : activeView === "vendors"
+                ? "Add and manage your vendors."
+                : activeView === "payments"
+                  ? "Prepare and execute payments for scheduled invoices."
+                  : "Review outstanding balances by aging bucket."}
           </p>
-
         </div>
+
         <div className="header-actions">
-          <button
-            className="primary-button"
-            type="button"
-            onClick={() => setShowCreateForm(true)}
-          >
-            New invoice
-          </button>
-          <div className="header-mark" aria-hidden="true">AP</div>
+          {activeView === "invoices" && (
+            <button
+              className="primary-button"
+              type="button"
+              onClick={() => {
+                setEditingInvoiceId(null);
+                setShowCreateForm(true);
+              }}
+            >
+              New invoice
+            </button>
+          )}
+          <div className="header-mark" aria-hidden="true">
+            AP
+          </div>
         </div>
       </header>
+
       {(showCreateForm || editingInvoiceId !== null) && (
         <InvoiceForm
           invoiceId={editingInvoiceId ?? undefined}
@@ -109,11 +134,19 @@ export default function App() {
           }}
         />
       )}
+
+      {statusMutation.isError && (
+        <div className="notice notice-error" role="alert">
+          Couldn’t update invoice status: {statusMutation.error?.message}
+        </div>
+      )}
+
       {deleteMutation.isError && (
         <div className="notice notice-error" role="alert">
           Couldn’t delete invoice: {deleteMutation.error?.message}
         </div>
       )}
+
       <nav className="view-tabs" aria-label="Accounts payable views">
         <button
           type="button"
@@ -122,6 +155,14 @@ export default function App() {
           onClick={() => setActiveView("invoices")}
         >
           Invoices
+        </button>
+        <button
+          type="button"
+          className={activeView === "vendors" ? "view-tab active" : "view-tab"}
+          aria-pressed={activeView === "vendors"}
+          onClick={() => setActiveView("vendors")}
+        >
+          Vendors
         </button>
         <button
           type="button"
@@ -141,8 +182,10 @@ export default function App() {
         </button>
       </nav>
 
+      {activeView === "vendors" && <VendorsPanel />}
       {activeView === "payments" && <PaymentRunsPanel />}
       {activeView === "aging" && <AgingReportPanel />}
+
       {activeView === "invoices" && (
         <section className="content-card" aria-labelledby="invoice-list-heading">
           <div className="card-heading">
@@ -160,7 +203,9 @@ export default function App() {
           </div>
 
           {invoicesQuery.isPending && (
-            <div className="notice" role="status">Loading invoices…</div>
+            <div className="notice" role="status">
+              Loading invoices…
+            </div>
           )}
 
           {invoicesQuery.isError && (
@@ -201,54 +246,83 @@ export default function App() {
                             {shortId(invoice.id)}
                           </span>
                         </td>
-                        <td className="muted-cell">{shortId(invoice.vendor_id)}</td>
+                        <td className="muted-cell">
+                          {shortId(invoice.vendor_id)}
+                        </td>
                         <td>
-                          <span className={`status-badge status-${invoice.status}`}>
-                            {(invoice.status === "draft" || invoice.status === "approved") && (
+                          <span
+                            className={`status-badge status-${invoice.status}`}
+                          >
+                            <span className="status-dot" />
+                            {statusLabels[invoice.status]}
+                          </span>
+
+                          <div className="row-actions">
+                            {invoice.status === "draft" && (
+                              <>
+                                <button
+                                  className="text-button"
+                                  type="button"
+                                  onClick={() =>
+                                    setEditingInvoiceId(invoice.id)
+                                  }
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  className="text-button"
+                                  type="button"
+                                  disabled={deleteMutation.isPending}
+                                  onClick={() => {
+                                    if (
+                                      window.confirm(
+                                        `Delete draft invoice ${invoice.invoice_number}?`,
+                                      )
+                                    ) {
+                                      deleteMutation.mutate(invoice.id);
+                                    }
+                                  }}
+                                >
+                                  Delete
+                                </button>
+                              </>
+                            )}
+
+                            {(invoice.status === "draft" ||
+                              invoice.status === "approved") && (
                               <button
+                                className="text-button"
                                 type="button"
                                 disabled={statusMutation.isPending}
                                 onClick={() =>
                                   statusMutation.mutate({
                                     invoiceId: invoice.id,
-                                    status: invoice.status === "draft" ? "approved" : "scheduled",
+                                    status:
+                                      invoice.status === "draft"
+                                        ? "approved"
+                                        : "scheduled",
                                   })
                                 }
                               >
-                                {invoice.status === "draft" ? "Approve" : "Schedule"}
+                                {invoice.status === "draft"
+                                  ? "Approve"
+                                  : "Schedule"}
                               </button>
                             )}
-                            {invoice.status === "draft" && (
-                              <button
-                                type="button"
-                                onClick={() => setEditingInvoiceId(invoice.id)}
-                              >
-                                Edit
-                              </button>
-                            )}
-                            {invoice.status === "draft" && (
-                              <button
-                                type="button"
-                                disabled={deleteMutation.isPending}
-                                onClick={() => {
-                                  if (window.confirm(`Delete draft invoice ${invoice.invoice_number}?`)) {
-                                    deleteMutation.mutate(invoice.id);
-                                  }
-                                }}
-                              >
-                                Delete
-                              </button>
-                            )}
-                            <span className="status-dot" />
-                            {statusLabels[invoice.status]}
-                          </span>
+                          </div>
                         </td>
                         <td>{invoice.issued_date}</td>
                         <td>{invoice.due_date}</td>
-                        <td className="numeric">{money(invoice.total_cents)}</td>
-                        <td className="numeric">{money(invoice.amount_paid_cents)}</td>
+                        <td className="numeric">
+                          {money(invoice.total_cents)}
+                        </td>
+                        <td className="numeric">
+                          {money(invoice.amount_paid_cents)}
+                        </td>
                         <td className="numeric balance-cell">
-                          {money(invoice.total_cents - invoice.amount_paid_cents)}
+                          {money(
+                            invoice.total_cents - invoice.amount_paid_cents,
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -257,11 +331,15 @@ export default function App() {
               </div>
 
               <footer className="pagination">
-                <span>Showing {start}–{end} of {page.total}</span>
+                <span>
+                  Showing {start}–{end} of {page.total}
+                </span>
                 <div>
                   <button
                     type="button"
-                    onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+                    onClick={() =>
+                      setOffset(Math.max(0, offset - PAGE_SIZE))
+                    }
                     disabled={offset === 0 || invoicesQuery.isFetching}
                   >
                     Previous
