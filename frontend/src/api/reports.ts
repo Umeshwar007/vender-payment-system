@@ -30,6 +30,7 @@ export function getAgingReport(
   page: number,
   pageSize: number,
   bucketOrder: "asc" | "desc",
+  vendorId?: string,
 ): Promise<AgingReport> {
   const params = new URLSearchParams({
     as_of: asOf,
@@ -37,6 +38,6 @@ export function getAgingReport(
     page_size: String(pageSize),
     bucket_order: bucketOrder,
   });
-
+if (vendorId) params.set("vendor_id", vendorId);
   return apiRequest<AgingReport>(`/reports/aging?${params.toString()}`);
 }

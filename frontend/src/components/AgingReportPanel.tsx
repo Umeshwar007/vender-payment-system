@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { getAgingReport } from "../api/reports";
-
+import { getVendors } from "../api/vendors";
 const PAGE_SIZE = 20;
 const BUCKETS = [
   ["current", "Current"],
@@ -30,10 +30,22 @@ export default function AgingReportPanel() {
   const [asOf, setAsOf] = useState(localDate);
   const [page, setPage] = useState(1);
   const [bucketOrder, setBucketOrder] = useState<"asc" | "desc">("asc");
+  const [vendorId, setVendorId] = useState("all");
 
+  const vendorsQuery = useQuery({
+    queryKey: ["vendors"],
+    queryFn: getVendors,
+  });
   const reportQuery = useQuery({
-    queryKey: ["aging-report", asOf, page, bucketOrder],
-    queryFn: () => getAgingReport(asOf, page, PAGE_SIZE, bucketOrder),
+    queryKey: ["aging-report", asOf, page, bucketOrder, vendorId],
+    queryFn: () =>
+      getAgingReport(
+        asOf,
+        page,
+        PAGE_SIZE,
+        bucketOrder,
+        vendorId === "all" ? undefined : vendorId,
+      ),
   });
 
   const report = reportQuery.data;
@@ -69,6 +81,23 @@ export default function AgingReportPanel() {
             >
               <option value="asc">Current to oldest</option>
               <option value="desc">Oldest to current</option>
+            </select>
+          </label>
+          <label>
+            <span>Vendor</span>
+            <select
+              value={vendorId}
+              onChange={(event) => {
+                setVendorId(event.target.value);
+                setPage(1);
+              }}
+            >
+              <option value="all">All vendors</option>
+              {(vendorsQuery.data?.items ?? []).map((vendor) => (
+                <option key={vendor.id} value={vendor.id}>
+                  {vendor.name}
+                </option>
+              ))}
             </select>
           </label>
         </div>
