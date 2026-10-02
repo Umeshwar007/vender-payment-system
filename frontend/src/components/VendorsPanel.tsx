@@ -9,7 +9,18 @@ import {
   type Vendor,
 } from "../api/vendors";
 
-function VendorRow({ vendor }: { vendor: Vendor }) {
+function initials(name: string): string {
+  return (
+    name
+      .trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase() ?? "")
+      .join("") || "V"
+  );
+}
+
+function VendorCard({ vendor }: { vendor: Vendor }) {
   const queryClient = useQueryClient();
   const [name, setName] = useState(vendor.name);
   const [email, setEmail] = useState(vendor.email ?? "");
@@ -32,41 +43,77 @@ function VendorRow({ vendor }: { vendor: Vendor }) {
   });
 
   return (
-    <tr>
-      <td>
-        <input
-          aria-label={`Name for ${vendor.name}`}
-          value={name}
-          maxLength={200}
-          onChange={(event) => setName(event.target.value)}
-        />
-      </td>
-      <td>
-        <input
-          aria-label={`Email for ${vendor.name}`}
-          type="email"
-          value={email}
-          maxLength={320}
-          onChange={(event) => setEmail(event.target.value)}
-        />
-      </td>
-      <td>{vendor.is_active ? "Active" : "Inactive"}</td>
-      <td>
+    <article className="vendor-card">
+      <div className="vendor-card-heading">
+        <div className="vendor-avatar" aria-hidden="true">
+          {initials(vendor.name)}
+        </div>
+        <div className="vendor-card-identity">
+          <h3>{vendor.name}</h3>
+          <span className="vendor-card-id">{vendor.id.slice(0, 8)}…</span>
+        </div>
+        <span
+          className={
+            vendor.is_active
+              ? "vendor-status vendor-status-active"
+              : "vendor-status vendor-status-inactive"
+          }
+        >
+          {vendor.is_active ? "Active" : "Inactive"}
+        </span>
+      </div>
+
+      <div className="vendor-card-fields">
+        <label className="vendor-field">
+          <span>Vendor name</span>
+          <input
+            value={name}
+            maxLength={200}
+            onChange={(event) => setName(event.target.value)}
+          />
+        </label>
+
+        <label className="vendor-field">
+          <span>Email</span>
+          <input
+            type="email"
+            value={email}
+            maxLength={320}
+            placeholder="No email added"
+            onChange={(event) => setEmail(event.target.value)}
+          />
+        </label>
+      </div>
+
+      {(updateMutation.isError || deleteMutation.isError) && (
+        <p className="vendor-error" role="alert">
+          {updateMutation.isError
+            ? `Couldn’t update vendor: ${updateMutation.error.message}`
+            : `Couldn’t delete vendor: ${deleteMutation.error?.message}`}
+        </p>
+      )}
+
+      <div className="vendor-card-actions">
         <button
+          className="vendor-button vendor-button-save"
           type="button"
           disabled={updateMutation.isPending || !name.trim()}
           onClick={() => updateMutation.mutate(vendor.is_active)}
         >
-          Save
+          {updateMutation.isPending ? "Saving…" : "Save changes"}
         </button>
+
         <button
+          className="vendor-button vendor-button-secondary"
           type="button"
           disabled={updateMutation.isPending}
           onClick={() => updateMutation.mutate(!vendor.is_active)}
         >
           {vendor.is_active ? "Deactivate" : "Reactivate"}
         </button>
+
         <button
+          className="vendor-button vendor-button-danger"
           type="button"
           disabled={deleteMutation.isPending}
           onClick={() => {
@@ -77,19 +124,8 @@ function VendorRow({ vendor }: { vendor: Vendor }) {
         >
           Delete
         </button>
-
-        {updateMutation.isError && (
-          <p className="form-error" role="alert">
-            Couldn’t update vendor: {updateMutation.error.message}
-          </p>
-        )}
-        {deleteMutation.isError && (
-          <p className="form-error" role="alert">
-            Couldn’t delete vendor: {deleteMutation.error.message}
-          </p>
-        )}
-      </td>
-    </tr>
+      </div>
+    </article>
   );
 }
 
@@ -112,17 +148,25 @@ export default function VendorsPanel() {
     },
   });
 
+  const vendors = vendorsQuery.data?.items ?? [];
+
   return (
-    <section className="content-card">
-      <div className="card-heading">
+    <section className="content-card vendors-panel">
+      <div className="vendors-panel-heading">
         <div>
-          <h2>Vendors</h2>
-          <p>Add and manage the vendors associated with invoices.</p>
+          <p className="eyebrow">VENDOR DIRECTORY</p>
+          <h2>Manage vendors</h2>
+          <p className="vendors-subtitle">
+            Keep supplier contact details and account status up to date.
+          </p>
         </div>
+        <span className="count-pill">
+          {vendorsQuery.data ? `${vendorsQuery.data.total} vendors` : "Vendors"}
+        </span>
       </div>
 
       <form
-        className="form-grid"
+        className="vendor-create-card"
         onSubmit={(event) => {
           event.preventDefault();
           createMutation.mutate({
@@ -131,26 +175,38 @@ export default function VendorsPanel() {
           });
         }}
       >
-        <label className="form-field">
+        <div className="vendor-create-copy">
+          <span className="vendor-create-icon" aria-hidden="true">＋</span>
+          <div>
+            <h3>Add a vendor</h3>
+            <p>Create a vendor profile for invoice entry.</p>
+          </div>
+        </div>
+
+        <label className="vendor-field">
           <span>Vendor name</span>
           <input
             value={name}
             maxLength={200}
+            placeholder="e.g. Northwind Supplies"
             onChange={(event) => setName(event.target.value)}
             required
           />
         </label>
-        <label className="form-field">
-          <span>Email (optional)</span>
+
+        <label className="vendor-field">
+          <span>Email <small>Optional</small></span>
           <input
             type="email"
             value={email}
             maxLength={320}
+            placeholder="accounts@example.com"
             onChange={(event) => setEmail(event.target.value)}
           />
         </label>
+
         <button
-          className="primary-button"
+          className="vendor-button vendor-button-add"
           type="submit"
           disabled={createMutation.isPending}
         >
@@ -175,22 +231,27 @@ export default function VendorsPanel() {
       )}
 
       {vendorsQuery.data && (
-        <div className="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Email</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {vendorsQuery.data.items.map((vendor) => (
-                <VendorRow key={vendor.id} vendor={vendor} />
+        <div className="vendor-directory">
+          <div className="vendor-directory-heading">
+            <div>
+              <h3>Your vendors</h3>
+              <p>Edit details or change a vendor’s active status.</p>
+            </div>
+            <span>{vendorsQuery.data.total} total</span>
+          </div>
+
+          {vendors.length === 0 ? (
+            <div className="empty-state">
+              <h3>No vendors yet</h3>
+              <p>Add a vendor above to get started.</p>
+            </div>
+          ) : (
+            <div className="vendor-grid">
+              {vendors.map((vendor) => (
+                <VendorCard key={vendor.id} vendor={vendor} />
               ))}
-            </tbody>
-          </table>
+            </div>
+          )}
         </div>
       )}
     </section>
