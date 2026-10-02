@@ -16,7 +16,7 @@ import AgingReportPanel from "./components/AgingReportPanel";
 import InvoiceForm from "./components/InvoiceForm";
 import PaymentRunsPanel from "./components/PaymentRunsPanel";
 import VendorsPanel from "./components/VendorsPanel";
-
+import { getVendors } from "./api/vendors";
 const PAGE_SIZE = 20;
 
 function money(cents: number): string {
@@ -58,6 +58,14 @@ export default function App() {
         statusFilter === "all" ? undefined : statusFilter,
       ),
   });
+  const vendorsQuery = useQuery({
+    queryKey: ["vendors"],
+    queryFn: getVendors,
+  });
+
+  const vendorNames = new Map(
+    (vendorsQuery.data?.items ?? []).map((vendor) => [vendor.id, vendor.name]),
+  );
 
   const statusMutation = useMutation({
     mutationFn: ({
@@ -271,7 +279,7 @@ export default function App() {
                           </span>
                         </td>
                         <td className="muted-cell">
-                          {shortId(invoice.vendor_id)}
+                          {vendorNames.get(invoice.vendor_id) ?? shortId(invoice.vendor_id)}
                         </td>
                         <td>
                           <span
