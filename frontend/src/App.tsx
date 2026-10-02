@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { getInvoices, type InvoiceStatus } from "./api/invoices";
 import "./App.css";
 import InvoiceForm from "./components/InvoiceForm";
+import { updateInvoiceStatus } from "./api/invoices";
 const PAGE_SIZE = 20;
 import AgingReportPanel from "./components/AgingReportPanel";
 import PaymentRunsPanel from "./components/PaymentRunsPanel";
@@ -38,6 +39,20 @@ export default function App() {
   const [activeView, setActiveView] = useState<
     "invoices" | "payments" | "aging"
   >("invoices");
+
+  const queryClient = useQueryClient();
+
+  const statusMutation = useMutation({
+    mutationFn: ({
+      invoiceId,
+      status,
+    }: {
+      invoiceId: string;
+      status: InvoiceStatus;
+    }) => updateInvoiceStatus(invoiceId, status),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["invoices"] }),
+  });
   const page = invoicesQuery.data;
   const start = page && page.total > 0 ? page.offset + 1 : 0;
   const end = page ? Math.min(page.offset + page.items.length, page.total) : 0;
@@ -173,6 +188,20 @@ export default function App() {
                         <td className="muted-cell">{shortId(invoice.vendor_id)}</td>
                         <td>
                           <span className={`status-badge status-${invoice.status}`}>
+                            {(invoice.status === "draft" || invoice.status === "approved") && (
+                              <button
+                                type="button"
+                                disabled={statusMutation.isPending}
+                                onClick={() =>
+                                  statusMutation.mutate({
+                                    invoiceId: invoice.id,
+                                    status: invoice.status === "draft" ? "approved" : "scheduled",
+                                  })
+                                }
+                              >
+                                {invoice.status === "draft" ? "Approve" : "Schedule"}
+                              </button>
+                            )}
                             <span className="status-dot" />
                             {statusLabels[invoice.status]}
                           </span>

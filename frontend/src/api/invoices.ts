@@ -62,3 +62,14 @@ export function createInvoice(input: InvoiceCreateInput): Promise<unknown> {
     body: JSON.stringify(input),
   });
 }
+
+
+export function updateInvoiceStatus(
+  invoiceId: string,
+  status: InvoiceStatus,
+) {
+  return apiRequest(`/invoices/${invoiceId}/status`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  });
+}
