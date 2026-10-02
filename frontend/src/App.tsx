@@ -46,12 +46,17 @@ export default function App() {
   const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [activeView, setActiveView] = useState<View>("invoices");
-
+  const [statusFilter, setStatusFilter] = useState<InvoiceStatus | "all">("all");
   const queryClient = useQueryClient();
 
   const invoicesQuery = useQuery({
-    queryKey: ["invoices", offset],
-    queryFn: () => getInvoices(PAGE_SIZE, offset),
+    queryKey: ["invoices", offset, statusFilter],
+    queryFn: () =>
+      getInvoices(
+        PAGE_SIZE,
+        offset,
+        statusFilter === "all" ? undefined : statusFilter,
+      ),
   });
 
   const statusMutation = useMutation({
@@ -197,6 +202,25 @@ export default function App() {
                   : "Invoices from your workspace"}
               </p>
             </div>
+
+            <label className="filter-control">
+              <span>Status</span>
+              <select
+                value={statusFilter}
+                onChange={(event) => {
+                  setStatusFilter(event.target.value as InvoiceStatus | "all");
+                  setOffset(0);
+                }}
+              >
+                <option value="all">All statuses</option>
+                {Object.entries(statusLabels).map(([status, label]) => (
+                  <option key={status} value={status}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
             <span className="count-pill">
               {page ? `${page.total} total` : "Loading"}
             </span>
@@ -290,25 +314,25 @@ export default function App() {
 
                             {(invoice.status === "draft" ||
                               invoice.status === "approved") && (
-                              <button
-                                className="text-button"
-                                type="button"
-                                disabled={statusMutation.isPending}
-                                onClick={() =>
-                                  statusMutation.mutate({
-                                    invoiceId: invoice.id,
-                                    status:
-                                      invoice.status === "draft"
-                                        ? "approved"
-                                        : "scheduled",
-                                  })
-                                }
-                              >
-                                {invoice.status === "draft"
-                                  ? "Approve"
-                                  : "Schedule"}
-                              </button>
-                            )}
+                                <button
+                                  className="text-button"
+                                  type="button"
+                                  disabled={statusMutation.isPending}
+                                  onClick={() =>
+                                    statusMutation.mutate({
+                                      invoiceId: invoice.id,
+                                      status:
+                                        invoice.status === "draft"
+                                          ? "approved"
+                                          : "scheduled",
+                                    })
+                                  }
+                                >
+                                  {invoice.status === "draft"
+                                    ? "Approve"
+                                    : "Schedule"}
+                                </button>
+                              )}
                           </div>
                         </td>
                         <td>{invoice.issued_date}</td>
