@@ -8,7 +8,7 @@ services:
       INVOICE_DB_PASSWORD: ${INVOICE_DB_PASSWORD:-local_invoice_password}
       PAYMENT_DB_PASSWORD: ${PAYMENT_DB_PASSWORD:-local_payment_password}
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
@@ -22,7 +22,7 @@ services:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -43,7 +43,7 @@ services:
     environment:
       INVOICE_DATABASE_URL: postgresql+asyncpg://invoice_user:${INVOICE_DB_PASSWORD}@db:5432/invoicing
     ports:
-      - "8001:8001"
+      - "127.0.0.1:8001:8001"
     depends_on:
       db:
         condition: service_healthy
@@ -80,7 +80,7 @@ services:
       PAYMENT_DATABASE_URL: postgresql+asyncpg://payment_user:${PAYMENT_DB_PASSWORD}@db:5432/invoicing
       BANK_SIMULATOR_URL: http://bank-simulator:8003
     ports:
-      - "8002:8002"
+      - "127.0.0.1:8002:8002"
     depends_on:
       db:
         condition: service_healthy
@@ -114,7 +114,7 @@ services:
       - --port
       - "8003"
     ports:
-      - "8003:8003"
+      - "127.0.0.1:8003:8003"
     restart: unless-stopped
 
 
@@ -122,7 +122,7 @@ services:
     build:
       context: ./frontend
     ports:
-      - "8080:80"
+      - "${FRONTEND_PORT:-8080}:80"
     depends_on:
       - invoice-api
       - payment-api
