@@ -30,7 +30,104 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+  invoice-api:
+    build:
+      context: .
+    command:
+      - uvicorn
+      - services.invoice_service.app.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8001"
+    environment:
+      INVOICE_DATABASE_URL: postgresql+asyncpg://invoice_user:${INVOICE_DB_PASSWORD}@db:5432/invoicing
+    ports:
+      - "8001:8001"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
 
+  invoice-outbox-worker:
+    build:
+      context: .
+    command:
+      - python
+      - -m
+      - services.invoice_service.app.outbox_worker
+    environment:
+      INVOICE_DATABASE_URL: postgresql+asyncpg://invoice_user:${INVOICE_DB_PASSWORD}@db:5432/invoicing
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  payment-api:
+    build:
+      context: .
+    command:
+      - uvicorn
+      - services.payment_service.app.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8002"
+    environment:
+      PAYMENT_DATABASE_URL: postgresql+asyncpg://payment_user:${PAYMENT_DB_PASSWORD}@db:5432/invoicing
+      BANK_SIMULATOR_URL: http://bank-simulator:8003
+    ports:
+      - "8002:8002"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  payment-event-consumer:
+    build:
+      context: .
+    command:
+      - python
+      - -m
+      - services.payment_service.app.event_consumer
+    environment:
+      PAYMENT_DATABASE_URL: postgresql+asyncpg://payment_user:${PAYMENT_DB_PASSWORD}@db:5432/invoicing
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  bank-simulator:
+    build:
+      context: .
+    command:
+      - uvicorn
+      - services.bank_simulator.app.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8003"
+    ports:
+      - "8003:8003"
+    restart: unless-stopped
+
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - invoice-api
+      - payment-api
+    restart: unless-stopped
 volumes:
   postgres_data:
   redis_data:
+
