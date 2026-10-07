@@ -112,6 +112,15 @@ class InvoiceLine(Base):
 
     invoice: Mapped[Invoice] = relationship(back_populates="lines")
 
+class ProcessedPaymentEvent(Base):
+    __tablename__ = "processed_payment_events"
+
+    event_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    processed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
 
 class OutboxEvent(Base):
     __tablename__ = "outbox_events"
@@ -128,3 +137,5 @@ class OutboxEvent(Base):
     )
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[str | None] = mapped_column(Text)
+
+

@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from services.payment_service.app.db import get_session
 from services.payment_service.app.models import (
     InvoiceProjection,
+    PaymentOutboxEvent,
     Payment,
     PaymentRun,
 )
@@ -470,3 +471,18 @@ async def mark_payment_succeeded(
 
     payment.status = "succeeded"
     payment.bank_reference = bank_reference
+
+
+    session.add(
+        PaymentOutboxEvent(
+            event_type="payment.succeeded",
+            aggregate_id=payment.id,
+            payload={
+                "schema_version": 1,
+                "payment_id": str(payment.id),
+                "invoice_id": str(payment.invoice_id),
+                "amount_cents": payment.amount_cents,
+                "bank_reference": str(bank_reference),
+            },
+        )
+    )

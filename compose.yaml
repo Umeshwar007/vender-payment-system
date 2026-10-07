@@ -116,6 +116,41 @@ services:
     ports:
       - "127.0.0.1:8003:8003"
     restart: unless-stopped
+  
+  payment-outbox-worker:
+    build:
+      context: .
+    command:
+      - python
+      - -m
+      - services.payment_service.app.outbox_worker
+    environment:
+      PAYMENT_DATABASE_URL: postgresql+asyncpg://payment_user:${PAYMENT_DB_PASSWORD}@db:5432/invoicing
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+    
+  invoice-payment-consumer:
+    build:
+      context: .
+    command:
+      - python
+      - -m
+      - services.invoice_service.app.payment_event_consumer
+    environment:
+      INVOICE_DATABASE_URL: postgresql+asyncpg://invoice_user:${INVOICE_DB_PASSWORD}@db:5432/invoicing
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
 
 
   frontend:
