@@ -1,18 +1,23 @@
 import { apiRequest } from "./client";
 
-export interface AgingBucketSummary {
-  invoice_count: number;
-  amount_cents: number;
-}
+export type AgingSortBy =
+  | "total"
+  | "current"
+  | "days_1_30"
+  | "days_31_60"
+  | "days_61_90"
+  | "days_90_plus";
 
-export interface AgingInvoice {
-  invoice_id: string;
+export interface VendorAging {
   vendor_id: string;
-  invoice_number: string;
-  due_date: string;
-  outstanding_cents: number;
-  days_past_due: number;
-  bucket: string;
+  current_cents: number;
+  days_1_30_cents: number;
+  days_31_60_cents: number;
+  days_61_90_cents: number;
+  days_90_plus_cents: number;
+  total_outstanding_cents: number;
+  vendor_rank: number;
+  share_pct: number;
 }
 
 export interface AgingReport {
@@ -21,23 +26,28 @@ export interface AgingReport {
   page_size: number;
   total_count: number;
   total_pages: number;
-  buckets: Record<string, AgingBucketSummary>;
-  invoices: AgingInvoice[];
+  vendors: VendorAging[];
 }
 
 export function getAgingReport(
   asOf: string,
   page: number,
   pageSize: number,
-  bucketOrder: "asc" | "desc",
+  sortBy: AgingSortBy,
+  sortOrder: "asc" | "desc",
   vendorId?: string,
 ): Promise<AgingReport> {
   const params = new URLSearchParams({
     as_of: asOf,
     page: String(page),
     page_size: String(pageSize),
-    bucket_order: bucketOrder,
+    sort_by: sortBy,
+    sort_order: sortOrder,
   });
-if (vendorId) params.set("vendor_id", vendorId);
+
+  if (vendorId) {
+    params.set("vendor_id", vendorId);
+  }
+
   return apiRequest<AgingReport>(`/reports/aging?${params.toString()}`);
 }

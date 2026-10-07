@@ -36,19 +36,16 @@ class PaymentRunRead(BaseModel):
     payments: list[PaymentRead] = Field(default_factory=list)
 
 
-class AgingBucketSummary(BaseModel):
-    invoice_count: int
-    amount_cents: int
-
-
-class AgingInvoiceRead(BaseModel):
-    invoice_id: UUID
+class VendorAgingRead(BaseModel):
     vendor_id: UUID
-    invoice_number: str
-    due_date: date
-    outstanding_cents: int
-    days_past_due: int
-    bucket: str
+    current_cents: int
+    days_1_30_cents: int
+    days_31_60_cents: int
+    days_61_90_cents: int
+    days_90_plus_cents: int
+    total_outstanding_cents: int
+    vendor_rank: int
+    share_pct: float
 
 
 class AgingReportRead(BaseModel):
@@ -57,5 +54,4 @@ class AgingReportRead(BaseModel):
     page_size: int
     total_count: int
     total_pages: int
-    buckets: dict[str, AgingBucketSummary]
-    invoices: list[AgingInvoiceRead]
+    vendors: list[VendorAgingRead]
